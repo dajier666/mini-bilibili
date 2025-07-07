@@ -11,7 +11,6 @@ import lombok.Data;
 public class Message implements Serializable
 {
     @Serial
-    @TableField(exist = false)
     private static final long serialVersionUID = 1L;    // 序列化id
     private Long targetId;              // 接收者id
     private Long userId;                // 发送者id

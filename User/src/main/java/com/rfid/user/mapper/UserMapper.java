@@ -3,6 +3,9 @@ package com.rfid.user.mapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.rfid.user.entity.User;
+import org.apache.ibatis.annotations.Select;
+
+import java.util.List;
 
 
 public interface UserMapper extends BaseMapper<User> {
@@ -11,4 +14,5 @@ public interface UserMapper extends BaseMapper<User> {
         queryWrapper.eq("phone", phone).or().eq("email", email);
         return this.selectOne(queryWrapper);
     }
+
 }

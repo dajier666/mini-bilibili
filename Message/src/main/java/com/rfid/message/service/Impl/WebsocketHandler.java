@@ -1,7 +1,5 @@
-package com.rfid.message.service;
+package com.rfid.message.service.Impl;
 
-import com.rfid.message.entity.GroupMessage;
-import com.rfid.message.enums.MessageType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
@@ -65,24 +63,8 @@ public class WebsocketHandler extends TextWebSocketHandler {
         }
     }
 
-    /**
-     * 向多个指定群组发送消息
-     */
-    public void sendMessageToGroup(GroupMessage groupMessage) {
-        for (Long targetId : groupMessage.getGroupIds()) {
-            sendMessageToUser(GroupMessageToMessage(groupMessage, targetId));
-        }
-    }
 
-    public Message GroupMessageToMessage(GroupMessage groupMessage,Long TargetId) {
-        Message message = new Message();
-        message.setTargetId(TargetId);
-        message.setContent(groupMessage.getContent());
-        message.setCreateTime(groupMessage.getCreateTime());
-        message.setUserId(groupMessage.getUserId());
-        message.setType(MessageType.GROUP.getCode());
-        return message;
-    }
+
 
 }
 

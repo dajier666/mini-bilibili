@@ -1,6 +1,7 @@
 package com.rfid.user.service.impl;
 
 
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.rfid.user.entity.DTO.LoginDTO;
 import com.rfid.user.entity.DTO.LoginResultDTO;
 import com.rfid.user.entity.RegisterDTO;
@@ -22,6 +23,7 @@ import org.springframework.beans.BeanUtils;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.util.Collections;
 import java.util.concurrent.TimeUnit;
 import java.util.HashMap;
 import java.util.List;
@@ -409,4 +411,54 @@ public class UserService {
 //                .map(entry -> entry.getValue())
 //                .collect(Collectors.toList());
 //    }
+
+    /**
+     * 根据用户信息查找单个用户
+     * @param userInfo 包含查找条件的用户对象
+     * @return 匹配的单个用户，未找到则返回 null
+     */
+    public User findSingleUser(User userInfo) {
+        if (userInfo == null) {
+            return null;
+        }
+        QueryWrapper<User> queryWrapper = new QueryWrapper<>();
+        if (userInfo.getId() != null) {
+            queryWrapper.eq("id", userInfo.getId());
+        }
+        if (userInfo.getUsername() != null) {
+            queryWrapper.eq("username", userInfo.getUsername());
+        }
+        if (userInfo.getEmail() != null) {
+            queryWrapper.eq("email", userInfo.getEmail());
+        }
+        if (userInfo.getPhone() != null) {
+            queryWrapper.eq("phone", userInfo.getPhone());
+        }
+        return userMapperServiceImpl.getOne(queryWrapper);
+    }
+
+    /**
+     * 根据用户信息查找多个用户
+     * @param userInfo 包含查找条件的用户对象
+     * @return 匹配的用户列表
+     */
+    public List<User> findMultipleUsers(User userInfo) {
+        if (userInfo == null) {
+            return Collections.emptyList();
+        }
+        QueryWrapper<User> queryWrapper = new QueryWrapper<>();
+        if (userInfo.getId() != null) {
+            queryWrapper.eq("id", userInfo.getId());
+        }
+        if (userInfo.getUsername() != null) {
+            queryWrapper.like("username", userInfo.getUsername());
+        }
+        if (userInfo.getEmail() != null) {
+            queryWrapper.eq("email", userInfo.getEmail());
+        }
+        if (userInfo.getPhone() != null) {
+            queryWrapper.eq("phone", userInfo.getPhone());
+        }
+        return userMapperServiceImpl.list(queryWrapper);
+    }
 }
