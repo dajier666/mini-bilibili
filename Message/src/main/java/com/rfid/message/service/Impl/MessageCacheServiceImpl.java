@@ -1,29 +1,29 @@
 package com.rfid.message.service.Impl;
 
 import com.github.benmanes.caffeine.cache.*;
+import com.rfid.message.entity.CacheUpdateMessage;
 import com.rfid.message.entity.Message;
+import com.rfid.message.task.BloomFilterTask;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.*;
+import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.stream.Collectors;
-@Slf4j
-@Service
+
 /**
  * 消息缓存服务实现类，负责管理消息相关的本地缓存和Redis缓存
  */
-public class MessageCacheServiceImpl {
+@Slf4j
+@Service
+public class  MessageCacheServiceImpl {
     // Redisson客户端，用于操作Redis分布式数据结构
     private final RedissonClient redissonClient;
     // 消息映射服务，用于数据库操作
     private final MessageMapperServiceImpl messageService;
-
-    // Caffeine本地缓存：存储用户与所有粉丝的最近消息
-    private final LoadingCache<Long, Map<Long, Message>> userLatestFanMessages;
 
     // Caffeine本地缓存：存储两用户间的热门消息会话
     private final LoadingCache<String, List<Message>> hotConversations;
@@ -34,26 +34,23 @@ public class MessageCacheServiceImpl {
     // 热点用户ID集合：使用线程安全的CopyOnWriteArraySet存储
     private final CopyOnWriteArraySet<Long> hotUserIds;
 
-    // 布隆过滤器：用于快速判断用户是否存在，防止缓存穿透
-    private final RBloomFilter<Long> userBloomFilter;
-
     // 缓存加载线程池：用于异步加载缓存数据
     private final ExecutorService cacheLoaderExecutor;
 
     // 缓存加载超时时间（毫秒）
     private static final long CACHE_LOAD_TIMEOUT = 500;
 
+    // 布隆过滤器：用于快速判断用户是否存在，防止缓存穿透
+    private final RBloomFilter<Long> userBloomFilter;
     /**
      * 构造函数，初始化各种缓存和组件
      */
     public MessageCacheServiceImpl(RedissonClient redissonClient,
-                            MessageMapperServiceImpl messageService) {
-        this.redissonClient = redissonClient;
-        this.messageService = messageService;
-
-        // 初始化布隆过滤器（预计100万用户，误判率0.01%）
-        this.userBloomFilter = redissonClient.getBloomFilter("userBloomFilter");
-        userBloomFilter.tryInit(1000000, 0.0001);
+                            MessageMapperServiceImpl messageService,
+                                   BloomFilterTask bloomFilterTask) {
+        this.redissonClient = redissonClient;  // 注入Redisson客户端，用于分布式锁和Redis操作
+        this.messageService = messageService;  // 注入消息服务，用于数据库操作
+        this.userBloomFilter = bloomFilterTask.getUserBloomFilter();  // 获取用户布隆过滤器，用于快速判断用户是否存在
 
         // 配置缓存加载线程池
         this.cacheLoaderExecutor = Executors.newFixedThreadPool(20, new ThreadFactory() {
@@ -61,72 +58,89 @@ public class MessageCacheServiceImpl {
 
             @Override
             public Thread newThread(Runnable r) {
+                // 创建命名线程，便于问题排查
                 return new Thread(r, "cache-loader-" + threadNumber.getAndIncrement());
             }
         });
 
-        // 配置用户与粉丝最近消息的本地缓存（启用异步加载）
-        this.userLatestFanMessages = Caffeine.newBuilder()
-                .maximumSize(5000)  // 最大缓存项数
-                .expireAfterAccess(30, TimeUnit.MINUTES)  // 30分钟未访问则过期
-                .refreshAfterWrite(10, TimeUnit.MINUTES)  // 写入10分钟后刷新
-                .executor(cacheLoaderExecutor)  // 使用指定的线程池
-                .recordStats()  // 记录缓存统计信息
-                .build(this::loadLatestMessagesFromRedis);  // 指定加载方法
-
         // 配置热点会话本地缓存（启用异步加载）
         this.hotConversations = Caffeine.newBuilder()
-                .maximumSize(2000)  // 最大缓存项数
-                .expireAfterAccess(1, TimeUnit.HOURS)  // 1小时未访问则过期
-                .weigher((String key, List<Message> value) -> Math.min(value.size(), 100))  // 权重计算器
-                .executor(cacheLoaderExecutor)  // 使用指定的线程池
-                .recordStats()  // 记录缓存统计信息
-                .build(this::loadMessagesFromRedis);  // 指定加载方法
+                .maximumSize(2000)  // 设置缓存最大容量为2000条
+                .expireAfterAccess(1, TimeUnit.HOURS)  // 设置访问后1小时过期
+                .weigher((String key, List<Message> value) -> Math.min(value.size(), 100))  // 设置权重计算方式
+                .executor(cacheLoaderExecutor)  // 指定缓存加载使用的线程池
+                .recordStats()  // 开启缓存统计功能
+                .build(this::loadMessagesFromRedis);  // 设置缓存加载方法
 
-        // 初始化会话访问计数器
+        // 初始化会话访问计数器，使用线程安全的ConcurrentHashMap
         this.conversationAccessCounter = new ConcurrentHashMap<>();
 
-        // 初始化热点用户集合
+        // 初始化热点用户集合，使用线程安全的CopyOnWriteArraySet
         this.hotUserIds = new CopyOnWriteArraySet<>();
     }
 
-    // 从Redis加载用户最近消息（异步加载后备方法）
-    private Map<Long, Message> loadLatestMessagesFromRedis(Long userId) {
-        String cacheKey = getLatestFanMessageKey(userId);
-        RMap<Long, Message> latestMessages = redissonClient.getMap(cacheKey);
+    // 缓存预热：启动时加载热门数据和初始化布隆过滤器
+    @PostConstruct
+    public void initCache() {
+        log.info("Starting cache preheating...");
 
-        // 缓存穿透处理
-        if (latestMessages.isEmpty()) {
-            RLock lock = redissonClient.getLock("lock-"+cacheKey);
-            try {
-                if (lock.tryLock(CACHE_LOAD_TIMEOUT, TimeUnit.MILLISECONDS)) {
-                    try {
-                        if (latestMessages.isEmpty()) {
-                            log.info("Loading latest messages from DB for user: {}", userId);
-                            // 从数据库加载
-                            Map<Long, Message> dbMessages = messageService.getBaseMapper().getLatestMessages(String.valueOf(userId));
-                            // 缓存到Redis
-                            latestMessages.putAll(dbMessages);
-                            latestMessages.expire(24, TimeUnit.HOURS);
-                            log.info("Cached latest messages for user: {}", userId);
-                        } else {
-                            log.info("No latest messages found for user: {}", userId);
-                        }
-                    } finally {
-                        lock.unlock();
-                    }
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                log.error("Interrupted while loading cache for user: {}", userId, e);
-                return Collections.emptyMap();
-            }
-        }
+        // 任务1：加载热点用户ID
+        CompletableFuture<Void> hotUserIdsFuture = CompletableFuture.runAsync(
+                this::loadHotUserIds, cacheLoaderExecutor
+        );
 
-        return latestMessages.readAllMap();
+        // 任务2：依赖热点用户ID加载完成后，加载热点用户消息
+        CompletableFuture<Void> hotUserMessagesFuture = hotUserIdsFuture.thenRunAsync(
+                this::loadHotUserMessages, cacheLoaderExecutor
+        );
+
+        // 等待所有任务完成，处理异常
+        CompletableFuture.allOf(
+                hotUserIdsFuture,
+                hotUserMessagesFuture
+        ).exceptionally(ex -> {
+            log.error("Cache preheating failed", ex);
+            return null;
+        }).join();
+
+        log.info("Cache preheating completed");
     }
 
-    // 从Redis加载会话消息（异步加载后备方法）
+    // 检测热点数据
+    @Scheduled(fixedRate = 600_000) // 每10分钟执行一次（600,000毫秒）
+    public void detectHotData() {
+        try {
+            log.info("Starting hot data detection...");
+            detectHotUsers();
+            detectHotConversations();
+            resetAccessCounters();
+            log.info("Hot data detection completed");
+        } catch (Exception e) {
+            log.error("Hot data detection failed", e);
+        }
+    }
+
+    // 处理Kafka消息
+    @KafkaListener(topics = "message_cache_topic", groupId = "message-cache-group")
+    public void handleCacheUpdateMessage(CacheUpdateMessage updateMessage) {
+        try {
+            // 根据事件类型更新缓存
+            if ("INSERT".equals(updateMessage.getEventType())) {
+                // 从数据库加载最新消息
+                Message message = messageService.getById(updateMessage.getPrimaryKey());
+                if (message != null) {
+                    cacheMessagesBetweenUsers(updateMessage.getUserId(), updateMessage.getTargetId(), Collections.singletonList(message));
+                }
+            } else if ("DELETE".equals(updateMessage.getEventType())||
+                    "UPDATE".equals(updateMessage.getEventType())) {
+                clearMessagesBetweenUsers(updateMessage.getUserId(), updateMessage.getTargetId());
+            }
+        } catch (Exception e) {
+            log.error("处理缓存更新消息失败", e);
+        }
+    }
+
+      // 从Redis加载会话消息（异步加载后备方法）
     private List<Message> loadMessagesFromRedis(String cacheKey) {
         RList<Message> messageList = redissonClient.getList(cacheKey);
 
@@ -189,19 +203,45 @@ public class MessageCacheServiceImpl {
         return hotConversations.get(cacheKey);
     }
 
-    // 获取用户与所有粉丝的最近消息（优化版）
-    public Map<Long, Message> getLatestMessagesWithFans(Long userId) {
+      /**
+     * 获取两个用户之间的消息（分页版）
+     * @param userId1 用户ID1
+     * @param userId2 用户ID2
+     * @param pageNum 页码（从1开始）
+     * @param pageSize 每页大小
+     * @return 分页后的消息列表
+     */
+    public List<Message> getMessagesBetweenUsers(Long userId1, Long userId2, int pageNum, int pageSize) {
+        // 参数校验与边界处理
+        if (pageNum < 1) pageNum = 1;
+        if (pageSize < 1 || pageSize > 100) pageSize = 20; // 限制最大页大小为100
+
         // 1. 使用布隆过滤器快速判断用户是否存在
-        if (!userBloomFilter.contains(userId)) {
-            log.debug("User not found in bloom filter: {}", userId);
-            return Collections.emptyMap();
+        if (!userBloomFilter.contains(userId1) || !userBloomFilter.contains(userId2)) {
+            log.debug("User not found in bloom filter: {} or {}", userId1, userId2);
+            return Collections.emptyList();
         }
 
-        // 2. 记录用户访问
-        conversationAccessCounter.computeIfAbsent("user_" + userId, k -> new AtomicInteger(0)).incrementAndGet();
+        String cacheKey = getMessagesKey(userId1, userId2);
 
-        // 3. 从本地缓存获取（自动触发异步加载）
-        return userLatestFanMessages.get(userId);
+        // 2. 记录会话访问
+        conversationAccessCounter.computeIfAbsent(cacheKey, k -> new AtomicInteger(0)).incrementAndGet();
+
+        // 3. 从本地缓存获取完整消息列表
+        List<Message> allMessages = hotConversations.get(cacheKey);
+
+        // 4. 按时间降序排序（最新消息在前）
+        allMessages.sort((m1, m2) -> m2.getCreateTime().compareTo(m1.getCreateTime()));
+
+        // 5. 计算分页参数
+        int startIndex = (pageNum - 1) * pageSize;
+        if (startIndex >= allMessages.size()) {
+            return Collections.emptyList(); // 超出总条数，返回空列表
+        }
+        int endIndex = Math.min(startIndex + pageSize, allMessages.size());
+
+        // 6. 返回分页后的数据
+        return allMessages.subList(startIndex, endIndex);
     }
 
     // 缓存两个用户之间的消息
@@ -226,111 +266,24 @@ public class MessageCacheServiceImpl {
                 messages.size(), userId1, userId2);
     }
 
-    // 缓存用户与粉丝的最近消息
-    public void cacheLatestMessageWithFan(Long userId, Long fanId, Message message) {
-        if (message == null) {
-            return;
-        }
-
-        String cacheKey = getLatestFanMessageKey(userId);
-
-        // 1. 存储到Redis
-        RMap<Long, Message> latestMessages = redissonClient.getMap(cacheKey);
-        latestMessages.put(fanId, message);
-        latestMessages.expire(24, TimeUnit.HOURS);
-
-        // 2. 如果是热点用户，更新本地缓存
-        if (hotUserIds.contains(userId)) {
-            userLatestFanMessages.asMap().compute(userId, (k, v) -> {
-                if (v == null) {
-                    v = new HashMap<>();
-                }
-                v.put(fanId, message);
-                return v;
-            });
-        }
-
-        log.info("Cached latest message for user: {} from fan: {}", userId, fanId);
-    }
-
-    // 缓存预热：启动时加载热门数据和初始化布隆过滤器
-    @PostConstruct
-    public void initCache() {
-        log.info("Starting cache preheating...");
-        // 任务1：初始化布隆过滤器
-        CompletableFuture<Void> bloomFilterFuture = CompletableFuture.runAsync(
-                this::initUserBloomFilter, cacheLoaderExecutor
-        );
-
-        // 任务2：加载热点用户ID
-        CompletableFuture<Void> hotUserIdsFuture = CompletableFuture.runAsync(
-                this::loadHotUserIds, cacheLoaderExecutor
-        );
-
-        // 任务3：依赖热点用户ID加载完成后，加载热点用户消息
-        CompletableFuture<Void> hotUserMessagesFuture = hotUserIdsFuture.thenRunAsync(
-                this::loadHotUserMessages, cacheLoaderExecutor
-        );
-
-        // 任务4：依赖热点用户ID加载完成后，加载用户最新粉丝消息
-        CompletableFuture<Void> latestFanMessagesFuture = hotUserIdsFuture.thenRunAsync(
-                this::loadUserLatestFanMessages, cacheLoaderExecutor
-        );
-
-        // 等待所有任务完成，处理异常
-        CompletableFuture.allOf(
-                bloomFilterFuture,
-                hotUserMessagesFuture,
-                latestFanMessagesFuture
-        ).exceptionally(ex -> {
-            log.error("Cache preheating failed", ex);
-            return null;
-        }).join();
-
-        log.info("Cache preheating completed");
-    }
-
-    // 初始化用户布隆过滤器
-    private void initUserBloomFilter() {
-        log.info("Initializing user bloom filter...");
-
-        // 从数据库加载所有用户ID到布隆过滤器
-        List<Long> allUserIds = messageService.getBaseMapper().getAllUserIds();
-        for (Long userId : allUserIds) {
-            userBloomFilter.add(userId);
-        }
-
-        log.info("User bloom filter initialized with {} users", allUserIds.size());
-
-        // 定期更新布隆过滤器
-        ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
-        executor.scheduleAtFixedRate(() -> {
-            try {
-                long currentCount = userBloomFilter.count();
-                List<Long> newUserIds = messageService.getBaseMapper().getNewUserIds(currentCount);
-                for (Long userId : newUserIds) {
-                    userBloomFilter.add(userId);
-                }
-                log.info("Updated user bloom filter with {} new users", newUserIds.size());
-            } catch (Exception e) {
-                log.error("Failed to update user bloom filter", e);
-            }
-        }, 1, 1, TimeUnit.HOURS);
-    }
-
-    // 检测热点数据
-    @Scheduled(fixedRate = 600_000) // 每10分钟执行一次（600,000毫秒）
-    public void detectHotData() {
+    // 清除会话消息缓存
+    public void clearMessagesBetweenUsers(Long userId1, Long userId2) {
+        String cacheKey = getMessagesKey(userId1, userId2);
+        RLock lock = redissonClient.getLock("lock:" + cacheKey);
         try {
-            log.info("Starting hot data detection...");
-            detectHotUsers();
-            detectHotConversations();
-            resetAccessCounters();
-            log.info("Hot data detection completed");
-        } catch (Exception e) {
-            log.error("Hot data detection failed", e);
+            lock.lock();
+            RList<Message> messageList = redissonClient.getList(cacheKey);
+            messageList.clear();
+            
+            // 清除本地缓存 
+            hotConversations.invalidate(cacheKey);
+        } finally {
+            lock.unlock();
         }
+        
+        log.info("Cleared messages for conversation: {}<->{}", userId1, userId2);
     }
+
 
     // 检测热点用户
     private void detectHotUsers() {
@@ -431,31 +384,6 @@ public class MessageCacheServiceImpl {
         log.info("Preloaded {} hot conversations", count);
     }
 
-    // 缓存预热：加载用户与粉丝的最近消息
-    private void loadUserLatestFanMessages() {
-        log.info("Preloading user latest fan messages...");
-
-        int count = 0;
-        for (Long userId : hotUserIds) {
-            try {
-                Map<Long, Message> latestMessages = messageService.getBaseMapper().getLatestMessages(String.valueOf(userId));
-                if (!latestMessages.isEmpty()) {
-                    String cacheKey = getLatestFanMessageKey(userId);
-                    RMap<Long, Message> rMap = redissonClient.getMap(cacheKey);
-                    rMap.putAll(latestMessages);
-                    rMap.expire(24, TimeUnit.HOURS);
-
-                    // 加载到本地缓存
-                    userLatestFanMessages.put(userId, latestMessages);
-                    count++;
-                }
-            } catch (Exception e) {
-                log.error("Failed to preload latest messages for user: {}", userId, e);
-            }
-        }
-
-        log.info("Preloaded latest messages for {} users", count);
-    }
 
     // 生成用户间消息缓存键
     private String getMessagesKey(Long userId1, Long userId2) {
@@ -467,16 +395,16 @@ public class MessageCacheServiceImpl {
         }
     }
 
-    // 生成用户与粉丝最近消息缓存键
-    private String getLatestFanMessageKey(Long userId) {
-        return "chat:latest_fan:" + userId;
-    }
 
     // 获取缓存统计信息
     public String getCacheStats() {
-        return "UserLatestFanMessages: " + userLatestFanMessages.stats() +
-                "\nHotConversations: " + hotConversations.stats() +
+        return
+                "HotConversations: " + hotConversations.stats() +
                 "\nHotUsers: " + hotUserIds.size() +
                 "\nBloomFilter: " + userBloomFilter.count() + " elements";
     }
+
+
+
+
 }

@@ -1,5 +1,8 @@
 package com.rfid.user.enums;
 
+import lombok.Getter;
+
+@Getter
 public enum RelationType {
     FOLLOW(1, "关注"),
     FAN(2, "粉丝"),
@@ -13,11 +16,4 @@ public enum RelationType {
         this.description = description;
     }
 
-    public int getCode() {
-        return code;
-    }
-
-    public String getDescription() {
-        return description;
-    }
 }

@@ -1,5 +1,6 @@
 package com.rfid.message.service.Impl;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
@@ -12,6 +13,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rfid.message.entity.Message;
 
+@Slf4j
 @Service
 public class WebsocketHandler extends TextWebSocketHandler {
     private final Map<String, WebSocketSession> sessions = new ConcurrentHashMap<>();
@@ -56,9 +58,9 @@ public class WebsocketHandler extends TextWebSocketHandler {
                 String jsonMessage = objectMapper.writeValueAsString(message);
                 session.sendMessage(new TextMessage(jsonMessage));
             } catch (JsonProcessingException e) {
-                System.err.println("JSON 序列化失败: " + e.getMessage());
+                log.error("JSON 序列化失败: {}", e.getMessage());
             } catch (IOException e) {
-                System.err.println("消息发送失败: " + e.getMessage());
+                log.error("消息发送失败: {}", e.getMessage());
             }
         }
     }

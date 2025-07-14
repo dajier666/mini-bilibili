@@ -18,9 +18,12 @@ import java.util.concurrent.*;
 public class MessageConsumer {
     @Autowired
     private MessageHandlerFactory messageHandlerFactory;
-    // 假设存在消息写入数据库的服务
+
     @Autowired
     private MessageMapperServiceImpl messageMapperServiceImpl;
+
+    @Autowired
+    private MessageCacheServiceImpl messageCacheServiceImpl;
 
     private final List<Message> messageCache = new ArrayList<>();
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
@@ -57,19 +60,17 @@ public class MessageConsumer {
         if (groupMessage != null) {
             for (Long targetId : groupMessage.getGroupIds()) {
                 Message message = GroupMessageToMessage(groupMessage, targetId);
-                MessageHandler handler = messageHandlerFactory.getHandler(message);
-                if (handler != null) {
-                    handler.handle(message);
-                }
-                cacheMessage(message);
+                handleUserMessage(message);
             }
         }
     }
+
 
     // 缓存消息
     private void cacheMessage(Message message) {
         synchronized (lock) {
             messageCache.add(message);
+            messageCacheServiceImpl.cacheMessagesBetweenUsers(message.getUserId(), message.getTargetId(), List.of(message));
             if (messageCache.size() >= 1000) {
                 flushMessages();
             }

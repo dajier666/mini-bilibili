@@ -1,5 +1,8 @@
 package com.rfid.user.enums;
 
+import lombok.Getter;
+
+@Getter
 public enum MessageType {
     FOLLOW(1, "关注通知"),
     SYSTEM(2, "系统通知"),
@@ -16,11 +19,4 @@ public enum MessageType {
         this.description = description;
     }
 
-    public int getCode() {
-        return code;
-    }
-
-    public String getDescription() {
-        return description;
-    }
 }

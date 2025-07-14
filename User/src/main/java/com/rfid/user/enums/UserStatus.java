@@ -1,5 +1,8 @@
 package com.rfid.user.enums;
 
+import lombok.Getter;
+
+@Getter
 public enum UserStatus {
     NORMAL(1, "正常"),
     FROZEN(2, "冻结"),
@@ -13,11 +16,4 @@ public enum UserStatus {
         this.description = description;
     }
 
-    public int getCode() {
-        return code;
-    }
-
-    public String getDescription() {
-        return description;
-    }
 }

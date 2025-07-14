@@ -1,9 +1,11 @@
 package com.rfid.user.utils;
 
 import com.rfid.user.exception.BusinessException;
+import org.springframework.stereotype.Component;
 
 import java.util.concurrent.atomic.AtomicLong;
 
+@Component
 public class SnowflakeIdGenerator {
     // 起始时间戳（2020-01-01）
     private final long startTimeStamp = 1577836800000L;
