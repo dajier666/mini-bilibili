@@ -67,5 +67,12 @@ public class VideoController {
         videoRepository.save(video);
         return Result.success();
     }
-
+    /**
+     * 关键词查找视频
+     */
+    @GetMapping("/search")
+    public Result searchVideo(@RequestParam String keyword) {
+        return Result.success(videoRepository.findByTitleContaining(keyword)
+                .addAll(videoRepository.findByDescriptionContaining(keyword)));
+    }
 }

@@ -2,12 +2,12 @@ package com.rfid.aichat;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
 
 @SpringBootApplication
-public class AiChatApplication {
-
+@EnableDiscoveryClient
+public class AIChatApplication {
     public static void main(String[] args) {
-        SpringApplication.run(AiChatApplication.class, args);
+        SpringApplication.run(AIChatApplication.class, args);
     }
-
 }
