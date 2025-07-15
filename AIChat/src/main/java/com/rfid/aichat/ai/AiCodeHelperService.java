@@ -13,5 +13,5 @@ import java.util.List;
 public interface AiCodeHelperService {
     // 流式对话
     @SystemMessage(fromResource = "system-prompt.txt")
-    Flux<String> chatStream(@MemoryId int memoryId, @UserMessage String userMessage);
+    Flux<String> chatStream(@MemoryId String memoryId, @UserMessage String userMessage);
 }
