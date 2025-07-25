@@ -2,7 +2,13 @@
 
 ## 一、项目概述
 本项目围绕动漫领域开发了一个名为 AIChat 的小助手，主要聚焦于动漫推荐和交流相关问题，能为用户提供实用建议，帮助用户轻松找到心仪动漫，畅快融入动漫交流圈。
-
+![img.png](pic/img.png)
+![img_5.png](pic/img_6.png)
+![img_1.png](pic/img_1.png)
+![img_2.png](pic/img_2.png)
+![img_3.png](pic/img_3.png)
+![img_4.png](pic/img_4.png)
+![img_5.png](pic/img_5.png)
 ## 二、项目结构
 项目主要包含以下几个模块：
 1. **AIChat**：核心模块，基于 Spring Boot 构建，使用了 `langchain4j-community-dashscope-spring-boot-starter` 库，提供动漫相关服务。
