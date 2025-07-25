@@ -1,20 +1,21 @@
-# AIChat 动漫助手项目文档（完善中）
+# AIChat 动漫交友平台项目文档（完善中）
 
 ## 一、项目概述
 本项目围绕动漫领域开发了一个名为 AIChat 的小助手，主要聚焦于动漫推荐和交流相关问题，能为用户提供实用建议，帮助用户轻松找到心仪动漫，畅快融入动漫交流圈。
 ![img.png](pic/img.png)
 ![img_5.png](pic/img_6.png)
-![img_1.png](pic/img_1.png)
-![img_2.png](pic/img_2.png)
 ![img_3.png](pic/img_3.png)
 ![img_4.png](pic/img_4.png)
 ![img_5.png](pic/img_5.png)
+![img_7.png](pic/img_7.png)
+![img_1.png](pic/img_1.png)
+![img_2.png](pic/img_2.png)
 ## 二、项目结构
 项目主要包含以下几个模块：
-1. **AIChat**：核心模块，基于 Spring Boot 构建，使用了 `langchain4j-community-dashscope-spring-boot-starter` 库，提供动漫相关服务。
-2. **User**：用户相关模块，处理用户信息，依赖 Spring Boot 基础组件和 MySQL 数据库。
-3. **Message**：消息相关模块，同样依赖 Spring Boot 和 MySQL，使用 MyBatis-Plus 进行数据库操作。
-4. **video**：视频相关模块，包含视频信息管理等功能，依赖多个 Spring Boot 组件和第三方库，如 MinIO、Kafka、Elasticsearch 和 Redisson 等。
+1. **AIChat**：核心模块，基于 Spring Boot 构建，集成 langchain4j-community-dashscope-spring-boot-starter 提供 AI 对话能力 🤖，实现动漫推荐、话题解析等核心功能。
+2. **User**：用户模块，处理用户信息管理、认证授权 🔐，依赖 Spring Boot、MySQL、Redis 及 JWT 实现无状态登录与安全验证。
+3. **Message**：消息模块，支持用户实时互动 💬，基于 MyBatis-Plus 操作数据库，通过 Kafka 实现消息异步传递，集成 Caffeine+Redis 双层缓存提升响应速度。
+4. **video**：视频资源模块，管理动漫视频元数据 🎥，依赖 MinIO 实现文件存储，Elasticsearch 提供高效检索，Kafka 处理异步任务，Redisson 实现分布式锁。
 
 ## 三、功能特性
 1. **提供具体动漫推荐建议**：针对不同需求（如按类型、年代、口碑等），推荐口碑佳作，包括经典老番和热门新番，附带简要推荐理由和看点。
@@ -46,17 +47,22 @@
 
 ## 六、使用说明
 ### （一）环境要求
-- Java 17
-- Maven
-- MySQL
-- MinIO（可选，根据实际需求）
-- Kafka（可选，根据实际需求）
-- Elasticsearch（可选，根据实际需求）
-- Redisson（可选，根据实际需求）
+- Java 17 ☕
+- Maven 3.6+ 🛠️
+- MySQL 8.0+ 🛢️ 
+- Redis 6.2+ 🗄️ 
+- Kafka 3.0+（可选，消息模块依赖）📨 
+- Elasticsearch 7.14+（可选，检索功能依赖）🔍 
+- MinIO RELEASE.2023-05-04T21-44-30Z+（可选，文件存储依赖）🗄️ 
+- Nacos 2.2.3（服务注册与配置中心）🔧
 
-### （二）项目启动
-1. 克隆项目代码到本地。
-2. 在 `pom.xml` 文件所在目录下执行 `mvn clean install` 命令，下载依赖并打包项目。
-3. 配置数据库连接信息，在相应模块的配置文件中修改数据库连接参数。
-4. 启动各个模块的 Spring Boot 应用程序。
+### （二）项目启动（前端页面风格借鉴了 b站山羊的前端小窝 ，遂不开源）
+1. 克隆项目代码到本地：git clone https://github.com/dajier666/mini-bilibili.git
+2. 进入项目根目录，执行 mvn clean install 编译打包 📦 
+3. 配置 Nacos 服务地址及各模块数据库连接参数 ⚙️ 
+4. 依次启动依赖服务（MySQL、Redis、Kafka 等）🚀 
+5. 启动各模块 Spring Boot 应用： 
+6. AIChat 模块：java -jar AIChat/target/AIChat-0.0.1-SNAPSHOT.jar 
+7. User 模块：java -jar User/target/User-0.0.1-SNAPSHOT.jar 
+8. 其他模块启动方式类似
 
