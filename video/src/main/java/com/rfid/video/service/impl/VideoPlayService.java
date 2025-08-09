@@ -1,6 +1,7 @@
 package com.rfid.video.service.impl;
 
-import com.rfid.video.Repository.VideoRepository;
+
+import com.rfid.video.Repository.VideoMapper;
 import com.rfid.video.entity.Video;
 import com.rfid.video.exception.VideoException;
 import com.rfid.video.utils.SnowflakeIdGenerator;
@@ -12,7 +13,6 @@ import org.springframework.stereotype.Service;
 
 @Slf4j
 @Service
-
 public class VideoPlayService {
     @Autowired
     private MinIOService minIOService;
@@ -27,16 +27,17 @@ public class VideoPlayService {
     private RedissonClient redissonClient;
 
     @Autowired
-    private VideoRepository videoRepository;
+    private VideoMapper videoRepository;
 
-
+    @Autowired
+    private VideoCacheService videoCacheService;
 
     /**
      * 获取视频播放预签名URL
      */
     public String getVideoPlayUrl(Long videoId) {
-        Video video = videoRepository.findById(videoId)
-                .orElseThrow(() -> new VideoException("视频不存在"));
+        // 从缓存获取视频元数据
+        Video video = videoCacheService.getVideoMetadata(videoId);
         try {
             // 生成1小时有效的预签名URL
             return minIOService.getPresignedUrl(video.getOriginalFilePath(), 3600);
@@ -50,8 +51,8 @@ public class VideoPlayService {
      * 删除视频（包括文件和元数据）
      */
     public void deleteVideo(Long videoId) {
-        Video video = videoRepository.findById(videoId)
-                .orElseThrow(() -> new VideoException("视频不存在"));
+        // 从缓存获取视频元数据
+        Video video = videoCacheService.getVideoMetadata(videoId);
 
         try {
             // 删除原始视频文件
@@ -70,7 +71,10 @@ public class VideoPlayService {
             }
 
             // 删除数据库记录
-            videoRepository.delete(video);
+            videoRepository.deleteById(videoId);
+
+            // 清除缓存
+            videoCacheService.clearVideoCache(videoId);
 
             log.info("视频删除成功: videoId={}", videoId);
         } catch (Exception e) {

@@ -1,6 +1,6 @@
 package com.rfid.video.controller;
 
-import com.rfid.video.Repository.VideoRepository;
+import com.rfid.video.Repository.VideoMapper;
 import com.rfid.video.entity.Result;
 import com.rfid.video.entity.Video;
 import com.rfid.video.service.impl.VideoPlayService;
@@ -22,7 +22,7 @@ public class VideoController {
     private VideoPlayService videoPlayService;
 
     @Autowired
-    private VideoRepository videoRepository;
+    private VideoMapper videoRepository;
 
     /**
      * 获取视频播放URL
@@ -47,7 +47,7 @@ public class VideoController {
      */
     @GetMapping("/{videoId}")
     public Result getVideoDetail(@PathVariable Long videoId) {
-        Optional<Video> video = videoRepository.findById(videoId);
+        Optional<Video> video = Optional.ofNullable(videoRepository.selectById(videoId));
         if (video.isPresent()) {
             Video foundVideo = video.get();
             return Result.success(foundVideo);
@@ -64,15 +64,8 @@ public class VideoController {
     @PutMapping("/{videoId}")
     public Result updateVideoMetadata(@PathVariable Long videoId, @RequestBody Video video) {
         video.setId(videoId);
-        videoRepository.save(video);
+        videoRepository.insert(video);
         return Result.success();
     }
-    /**
-     * 关键词查找视频
-     */
-    @GetMapping("/search")
-    public Result searchVideo(@RequestParam String keyword) {
-        return Result.success(videoRepository.findByTitleContaining(keyword)
-                .addAll(videoRepository.findByDescriptionContaining(keyword)));
-    }
+
 }

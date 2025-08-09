@@ -6,7 +6,7 @@ import org.springframework.data.elasticsearch.annotations.Document;
 import java.util.Date;
 import java.util.List;
 
-@Document(indexName = "videos")
+
 @Data
 public class Video {
     private Long id;                // 视频ID

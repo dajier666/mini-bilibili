@@ -1,6 +1,7 @@
 package com.rfid.video.service.impl;
 
-import com.rfid.video.Repository.VideoRepository;
+
+import com.rfid.video.Repository.VideoMapper;
 import com.rfid.video.entity.UploadRequest;
 import com.rfid.video.entity.UploadResponse;
 import com.rfid.video.entity.UploadSession;
@@ -46,7 +47,7 @@ public class VideoUploadServiceImpl {
     private RedissonClient redissonClient;
 
     @Autowired
-    private VideoRepository videoRepository;
+    private VideoMapper videoRepository;
 
     private static final String UPLOAD_SESSION_KEY = "upload-session";
     private static final String VIDEO_CHUNKS_BUCKET = "video-chunks";
@@ -349,7 +350,7 @@ public class VideoUploadServiceImpl {
         video.setStatus(0); // 0表示待审核
         // 可以从UploadRequest中获取更多元数据
 
-        videoRepository.save(video);
+        videoRepository.insert(video);
         log.info("视频元数据保存成功: videoId={}", session.getVideoId());
     }
 
